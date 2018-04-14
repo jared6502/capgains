@@ -94,6 +94,9 @@ namespace generate_8949
 				{
 					entry.Security = cells[0];
 
+					entry.UnitQty = Decimal.Round(entry.UnitQty, 4, MidpointRounding.AwayFromZero);
+					entry.UnitPrice = Decimal.Round(entry.UnitPrice, MidpointRounding.AwayFromZero);
+
 					if (entry.UnitQty < 0)
 					{
 						entry.UnitQty *= -1;
