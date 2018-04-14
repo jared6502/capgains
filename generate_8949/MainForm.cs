@@ -87,7 +87,10 @@ namespace generate_8949
 			Buys.Sort((x, y) => x.Day.CompareTo(y.Day));
 			Sells.Sort((x, y) => x.Day.CompareTo(y.Day));
 
+			foreach (LedgerEntry sale in Sells)
+			{
 
+			}
 		}
 	}
 }
