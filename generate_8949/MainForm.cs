@@ -142,9 +142,9 @@ namespace generate_8949
 						sale.UnitQty = 0;
 					}
 
-					entry.CostBasis = entry.UnitQty * entry.UnitBuyPrice;
-					entry.Proceeds = entry.UnitQty * entry.UnitSellPrice;
-					entry.CapitalGain = entry.Proceeds - entry.CostBasis;
+					entry.CostBasis = Decimal.Round(entry.UnitQty * entry.UnitBuyPrice, MidpointRounding.AwayFromZero);
+					entry.Proceeds = Decimal.Round(entry.UnitQty * entry.UnitSellPrice, MidpointRounding.AwayFromZero);
+					entry.CapitalGain = Decimal.Round(entry.Proceeds - entry.CostBasis, MidpointRounding.AwayFromZero);
 
 					CapitalGains.Add(entry);
 				}
