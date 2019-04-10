@@ -44,8 +44,8 @@ namespace generate_8949
 			}
 			else
 			{
-				//try
-				//{
+				try
+				{
 					List<string> SourceData = new List<string>();
 
 					using (StreamReader sr = new StreamReader(new FileStream(SourceDataFileName.Text, FileMode.Open)))
@@ -56,12 +56,14 @@ namespace generate_8949
 						}
 					}
 
-					ProcessDataset(SourceData.ToArray());
-				//}
-				//catch (Exception ex)
-				//{
-				//	MessageBox.Show("Exception during calculation:\n\n" + ex.Message, "Calc Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-				//}
+					FileInfo infile = new FileInfo(SourceDataFileName.Text);
+
+					ProcessDataset(infile.Name.Substring(0, infile.Name.Length - infile.Extension.Length), SourceData.ToArray());
+				}
+				catch (Exception ex)
+				{
+					MessageBox.Show("Exception during calculation:\n\n" + ex.Message, "Calc Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				}
 			}
 		}
 
@@ -75,7 +77,7 @@ namespace generate_8949
 			}
 		}
 
-		private void ProcessDataset(string[] DataSet)
+		private void ProcessDataset(string filename, string[] DataSet)
 		{
 			List<LedgerEntry> Buys = new List<LedgerEntry>();
 			List<LedgerEntry> Sells = new List<LedgerEntry>();
@@ -94,8 +96,8 @@ namespace generate_8949
 				{
 					entry.Security = cells[0];
 
-					entry.UnitQty = Decimal.Round(entry.UnitQty, 4, MidpointRounding.AwayFromZero);
-					entry.UnitPrice = Decimal.Round(entry.UnitPrice, MidpointRounding.AwayFromZero);
+					entry.UnitQty = Decimal.Round(entry.UnitQty, 8, MidpointRounding.AwayFromZero);
+					entry.UnitPrice = Decimal.Round(entry.UnitPrice, 4, MidpointRounding.AwayFromZero);
 
 					if (entry.UnitQty < 0)
 					{
@@ -115,48 +117,46 @@ namespace generate_8949
 
 			List<CapGainEntry> CapitalGains = new List<CapGainEntry>();
 
-			int offset = 0;
-
 			foreach (LedgerEntry sale in Sells)
 			{
-				while (sale.UnitQty > 0 && Buys.Count > offset)
+				foreach (LedgerEntry buy in Buys)
 				{
-					if (sale.Security != Buys[offset].Security)
+					//if not the same security or nothing left, skip it
+					if (buy.UnitQty <= 0 || sale.Security != buy.Security)
 					{
-						offset++;
 						continue;
-					}
-
-					CapGainEntry entry = new CapGainEntry();
-
-					entry.Security = sale.Security;
-					entry.UnitBuyPrice = Buys[offset].UnitPrice;
-					entry.AcqDate = Buys[offset].Day;
-
-					entry.UnitSellPrice = sale.UnitPrice;
-					entry.SaleDate = sale.Day;
-
-					if (sale.UnitQty > Buys[offset].UnitQty)
-					{
-						sale.UnitQty -= Buys[offset].UnitQty;
-						entry.UnitQty = Buys[offset].UnitQty;
-						Buys.RemoveAt(offset);
 					}
 					else
 					{
-						entry.UnitQty = sale.UnitQty;
-						Buys[offset].UnitQty -= sale.UnitQty;
-						sale.UnitQty = 0;
+						CapGainEntry entry = new CapGainEntry();
+
+						entry.Security = sale.Security;
+						entry.UnitBuyPrice = buy.UnitPrice;
+						entry.AcqDate = buy.Day;
+
+						entry.UnitSellPrice = sale.UnitPrice;
+						entry.SaleDate = sale.Day;
+
+						if (sale.UnitQty > buy.UnitQty)
+						{
+							sale.UnitQty -= buy.UnitQty;
+							entry.UnitQty = buy.UnitQty;
+							buy.UnitQty = 0;
+						}
+						else
+						{
+							entry.UnitQty = sale.UnitQty;
+							buy.UnitQty -= sale.UnitQty;
+							sale.UnitQty = 0;
+						}
+
+						entry.CostBasis = Decimal.Round(entry.UnitQty * entry.UnitBuyPrice, 4, MidpointRounding.AwayFromZero);
+						entry.Proceeds = Decimal.Round(entry.UnitQty * entry.UnitSellPrice, 4, MidpointRounding.AwayFromZero);
+						entry.CapitalGain = Decimal.Round(entry.Proceeds - entry.CostBasis, 4, MidpointRounding.AwayFromZero);
+
+						CapitalGains.Add(entry);
 					}
-
-					entry.CostBasis = Decimal.Round(entry.UnitQty * entry.UnitBuyPrice, MidpointRounding.AwayFromZero);
-					entry.Proceeds = Decimal.Round(entry.UnitQty * entry.UnitSellPrice, MidpointRounding.AwayFromZero);
-					entry.CapitalGain = Decimal.Round(entry.Proceeds - entry.CostBasis, MidpointRounding.AwayFromZero);
-
-					CapitalGains.Add(entry);
 				}
-
-				offset = 0;
 			}
 
 			List<CapGainEntry> ShortTerm = new List<CapGainEntry>();
@@ -164,44 +164,79 @@ namespace generate_8949
 
 			foreach (CapGainEntry ce in CapitalGains)
 			{
-				if (ce.SaleDate.Year > ce.AcqDate.Year + 1 ||
-					(ce.SaleDate.Year > ce.AcqDate.Year &&
-					ce.SaleDate.Month >= ce.AcqDate.Month &&
-					ce.SaleDate.Day >= ce.AcqDate.Day))
+				if (ce.UnitQty > 0)
 				{
-					LongTerm.Add(ce);
-				}
-				else
-				{
-					ShortTerm.Add(ce);
+					if (ce.SaleDate.Year > ce.AcqDate.Year + 1 ||
+										(ce.SaleDate.Year > ce.AcqDate.Year &&
+										ce.SaleDate.Month >= ce.AcqDate.Month &&
+										ce.SaleDate.Day >= ce.AcqDate.Day))
+					{
+						LongTerm.Add(ce);
+					}
+					else
+					{
+						ShortTerm.Add(ce);
+					}
 				}
 			}
 
-			List<string> ltg = new List<string>();
-			foreach (CapGainEntry ce in LongTerm)
+			//generate CSV file for long term capital gains
+			if (LongTerm.Count > 0)
 			{
-				ltg.Add(CapGainRow(ce));
-			}
-			SaveTextFile(ltg.ToArray());
-			
-			List<string> stg = new List<string>();
-			foreach (CapGainEntry ce in ShortTerm)
-			{
-				stg.Add(CapGainRow(ce));
-			}
-			SaveTextFile(stg.ToArray());
+				List<string> ltg = new List<string>();
 
+				ltg.Add("DESCRIPTION OF PROPERTY,DATE ACQUIRED,DATE SOLD OR DISPOSED,PROCEEDS,COST OR OTHER BASIS,CODE(S) FROM INSTRUCTIONS,AMOUNT OF ADJUSTMENT,GAIN OR (LOSS)");
+
+				foreach (CapGainEntry ce in LongTerm)
+				{
+					ltg.Add(CapGainRow(ce));
+				}
+
+				ltg.Add(",,,,,,,,");
+				ltg.Add(GetTotalsRow(LongTerm));
+
+				SaveTextFile("f8949_" + filename + "_longterm.csv", ltg.ToArray());
+			}
+
+			//generate CSV file for short term capital gains
+			if (ShortTerm.Count > 0)
+			{
+				List<string> stg = new List<string>();
+
+				stg.Add("DESCRIPTION OF PROPERTY,DATE ACQUIRED,DATE SOLD OR DISPOSED,PROCEEDS,COST OR OTHER BASIS,CODE(S) FROM INSTRUCTIONS,AMOUNT OF ADJUSTMENT,GAIN OR (LOSS)");
+
+				foreach (CapGainEntry ce in ShortTerm)
+				{
+					stg.Add(CapGainRow(ce));
+				}
+
+				stg.Add(",,,,,,,,");
+				stg.Add(GetTotalsRow(ShortTerm));
+
+				SaveTextFile("f8949_" + filename + "_shortterm.csv", stg.ToArray());
+			}
+
+			//generate CSV file for remaining amounts of securities after all other calculations
 			List<string> remainder = new List<string>();
+
+			remainder.Add("DESCRIPTION OF PROPERTY,DATE ACQUIRED,QUANTITY,UNIT PRICE");
+
 			foreach (LedgerEntry le in Buys)
 			{
-				remainder.Add(LedgerRow(le));
+				if (le.UnitQty > 0)
+				{
+					remainder.Add(LedgerRow(le));
+				}
 			}
-			SaveTextFile(remainder.ToArray());
+			SaveTextFile(filename + "_remainder.csv", remainder.ToArray());
 		}
 
-		private void SaveTextFile(string[] text)
+		private void SaveTextFile(string filename, string[] text)
 		{
 			SaveFileDialog sfd = new SaveFileDialog();
+
+			sfd.FileName = filename;
+
 			if (sfd.ShowDialog() == DialogResult.OK)
 			{
 				using (StreamWriter sw = new StreamWriter(new FileStream(sfd.FileName, FileMode.Create)))
@@ -221,7 +256,7 @@ namespace generate_8949
 				DateToText(ce.AcqDate) + "," +
 				DateToText(ce.SaleDate) + "," +
 				ce.Proceeds.ToString() + "," +
-				ce.CostBasis.ToString() + "," +
+				ce.CostBasis.ToString() + ",,," +
 				(ce.CapitalGain >= 0 ? ce.CapitalGain.ToString() : "(" + (ce.CapitalGain * -1).ToString() + ")");
 		}
 
@@ -237,6 +272,27 @@ namespace generate_8949
 		private string DateToText(DateTime dt)
 		{
 			return dt.Year.ToString("0000") + "-" + dt.Month.ToString("00") + "-" + dt.Day.ToString("00");
+		}
+
+		private string GetTotalsRow(List<CapGainEntry> entries)
+		{
+			Decimal TotalProceeds = 0;
+			Decimal TotalCostBasis = 0;
+			Decimal TotalGains = 0;
+
+			foreach(CapGainEntry ce in entries)
+			{
+				TotalProceeds += ce.Proceeds;
+				TotalCostBasis += ce.CostBasis;
+				TotalGains += ce.CapitalGain;
+			}
+
+			if (TotalProceeds - TotalCostBasis != TotalGains)
+			{
+				throw new Exception();
+			}
+
+			return "TOTALS,,," + TotalProceeds.ToString() + "," + TotalCostBasis.ToString() + ",,," + TotalGains.ToString();
 		}
 	}
 }
