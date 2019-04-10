@@ -29,6 +29,13 @@ namespace generate_8949
 		public Decimal CapitalGain;
 	}
 
+	public class BadDataException : Exception
+	{
+		public BadDataException(string message) : base(message)
+		{
+		}
+	}
+
 	public partial class MainForm : Form
 	{
 		public MainForm()
@@ -60,6 +67,10 @@ namespace generate_8949
 
 					ProcessDataset(infile.Name.Substring(0, infile.Name.Length - infile.Extension.Length), SourceData.ToArray());
 				}
+				catch (BadDataException ex)
+				{
+					MessageBox.Show("Invalid Transaction Data:\n\n" + ex.Message, "Invalid Data", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				}
 				catch (Exception ex)
 				{
 					MessageBox.Show("Exception during calculation:\n\n" + ex.Message, "Calc Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -89,15 +100,15 @@ namespace generate_8949
 
 				LedgerEntry entry = new LedgerEntry();
 
-				if (cells.Length > 3 &&
-					DateTime.TryParseExact(cells[1], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out entry.Day) &&
-					Decimal.TryParse(cells[2], out entry.UnitQty) &&
-					Decimal.TryParse(cells[3], out entry.UnitPrice))
+				bool MinimumLength = cells.Length > 3;
+				bool ValidDate = DateTime.TryParseExact(cells[1], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out entry.Day);
+				bool ValidQuantity = Decimal.TryParse(cells[2], NumberStyles.Number | NumberStyles.AllowExponent, CultureInfo.InvariantCulture, out entry.UnitQty);
+				bool ValidPrice = Decimal.TryParse(cells[3], NumberStyles.Number | NumberStyles.AllowExponent, CultureInfo.InvariantCulture, out entry.UnitPrice);
+				bool DataValid = MinimumLength && ValidDate && ValidQuantity && ValidPrice;
+
+				if (DataValid)
 				{
 					entry.Security = cells[0];
-
-					entry.UnitQty = Decimal.Round(entry.UnitQty, 8, MidpointRounding.AwayFromZero);
-					entry.UnitPrice = Decimal.Round(entry.UnitPrice, 4, MidpointRounding.AwayFromZero);
 
 					if (entry.UnitQty < 0)
 					{
@@ -121,6 +132,20 @@ namespace generate_8949
 			{
 				foreach (LedgerEntry buy in Buys)
 				{
+					Decimal test = 0;
+					foreach (LedgerEntry b in Buys)
+					{
+						if (sale.Security == buy.Security && sale.Day >= buy.Day)
+						{
+							test += b.UnitQty;
+						}
+					}
+
+					if (sale.Security == buy.Security && sale.UnitQty > 0 && sale.Day < buy.Day)
+					{
+						throw new BadDataException("A sell transaction for " + sale.UnitQty + " units of " + sale.Security + " on " + sale.Day.ToShortDateString() + " was found without any quantity left from before the transaction date.");
+					}
+
 					//if not the same security or nothing left, skip it
 					if (buy.UnitQty <= 0 || sale.Security != buy.Security)
 					{
@@ -150,9 +175,9 @@ namespace generate_8949
 							sale.UnitQty = 0;
 						}
 
-						entry.CostBasis = Decimal.Round(entry.UnitQty * entry.UnitBuyPrice, 4, MidpointRounding.AwayFromZero);
-						entry.Proceeds = Decimal.Round(entry.UnitQty * entry.UnitSellPrice, 4, MidpointRounding.AwayFromZero);
-						entry.CapitalGain = Decimal.Round(entry.Proceeds - entry.CostBasis, 4, MidpointRounding.AwayFromZero);
+						entry.CostBasis = entry.UnitQty * entry.UnitBuyPrice;
+						entry.Proceeds = entry.UnitQty * entry.UnitSellPrice;
+						entry.CapitalGain = entry.Proceeds - entry.CostBasis;
 
 						CapitalGains.Add(entry);
 					}
@@ -255,9 +280,9 @@ namespace generate_8949
 				ce.UnitQty.ToString() + " " + ce.Security + "," +
 				DateToText(ce.AcqDate) + "," +
 				DateToText(ce.SaleDate) + "," +
-				ce.Proceeds.ToString() + "," +
-				ce.CostBasis.ToString() + ",,," +
-				(ce.CapitalGain >= 0 ? ce.CapitalGain.ToString() : "(" + (ce.CapitalGain * -1).ToString() + ")");
+				Decimal.Round(ce.Proceeds, 2, MidpointRounding.AwayFromZero).ToString() + "," +
+				Decimal.Round(ce.CostBasis, 2, MidpointRounding.AwayFromZero).ToString() + ",,," +
+				(ce.CapitalGain >= 0 ? Decimal.Round(ce.CapitalGain, 2, MidpointRounding.AwayFromZero).ToString() : "(" + (Decimal.Round(ce.CapitalGain, 2, MidpointRounding.AwayFromZero) * -1).ToString() + ")");
 		}
 
 		private string LedgerRow(LedgerEntry le)
@@ -292,7 +317,7 @@ namespace generate_8949
 				throw new Exception();
 			}
 
-			return "TOTALS,,," + TotalProceeds.ToString() + "," + TotalCostBasis.ToString() + ",,," + TotalGains.ToString();
+			return "TOTALS,,," + Decimal.Round(TotalProceeds, 2, MidpointRounding.AwayFromZero).ToString() + "," + Decimal.Round(TotalCostBasis, 2, MidpointRounding.AwayFromZero).ToString() + ",,," + Decimal.Round(TotalGains, 2, MidpointRounding.AwayFromZero).ToString();
 		}
 	}
 }
