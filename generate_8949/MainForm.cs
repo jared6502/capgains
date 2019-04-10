@@ -44,8 +44,8 @@ namespace generate_8949
 			}
 			else
 			{
-				try
-				{
+				//try
+				//{
 					List<string> SourceData = new List<string>();
 
 					using (StreamReader sr = new StreamReader(new FileStream(SourceDataFileName.Text, FileMode.Open)))
@@ -57,11 +57,11 @@ namespace generate_8949
 					}
 
 					ProcessDataset(SourceData.ToArray());
-				}
-				catch (Exception ex)
-				{
-					MessageBox.Show("Exception during calculation:\n\n" + ex.Message, "Calc Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-				}
+				//}
+				//catch (Exception ex)
+				//{
+				//	MessageBox.Show("Exception during calculation:\n\n" + ex.Message, "Calc Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				//}
 			}
 		}
 
@@ -115,30 +115,37 @@ namespace generate_8949
 
 			List<CapGainEntry> CapitalGains = new List<CapGainEntry>();
 
+			int offset = 0;
+
 			foreach (LedgerEntry sale in Sells)
 			{
-				while (sale.UnitQty > 0)
+				while (sale.UnitQty > 0 && Buys.Count > offset)
 				{
+					if (sale.Security != Buys[offset].Security)
+					{
+						offset++;
+						continue;
+					}
+
 					CapGainEntry entry = new CapGainEntry();
 
 					entry.Security = sale.Security;
-
-					entry.UnitBuyPrice = Buys[0].UnitPrice;
-					entry.AcqDate = Buys[0].Day;
+					entry.UnitBuyPrice = Buys[offset].UnitPrice;
+					entry.AcqDate = Buys[offset].Day;
 
 					entry.UnitSellPrice = sale.UnitPrice;
 					entry.SaleDate = sale.Day;
 
-					if (sale.UnitQty > Buys[0].UnitQty)
+					if (sale.UnitQty > Buys[offset].UnitQty)
 					{
-						sale.UnitQty -= Buys[0].UnitQty;
-						entry.UnitQty = Buys[0].UnitQty;
-						Buys.RemoveAt(0);
+						sale.UnitQty -= Buys[offset].UnitQty;
+						entry.UnitQty = Buys[offset].UnitQty;
+						Buys.RemoveAt(offset);
 					}
 					else
 					{
 						entry.UnitQty = sale.UnitQty;
-						Buys[0].UnitQty -= sale.UnitQty;
+						Buys[offset].UnitQty -= sale.UnitQty;
 						sale.UnitQty = 0;
 					}
 
@@ -148,6 +155,8 @@ namespace generate_8949
 
 					CapitalGains.Add(entry);
 				}
+
+				offset = 0;
 			}
 
 			List<CapGainEntry> ShortTerm = new List<CapGainEntry>();
